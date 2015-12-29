@@ -33,6 +33,8 @@ in development
 * Add new ``st2garbagecollector`` service which periodically deletes old data from the database
   as configured in the config. By default, no old data is deleted unless explicitly configured in
   the config.
+* Fix validation error when None is passed explicitly to an optional argument on action
+  execution. (bug fix)
 
 1.2.0 - December 07, 2015
 -------------------------

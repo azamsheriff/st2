@@ -117,6 +117,7 @@ def assign_default_values(instance, schema):
         return instance
 
     properties = schema.get('properties', {})
+
     for property_name, property_data in six.iteritems(properties):
         has_default_value = 'default' in property_data
         default_value = property_data.get('default', None)
@@ -136,7 +137,9 @@ def assign_default_values(instance, schema):
         schema_items = property_data.get('items', {})
 
         # Array
-        if attribute_type == 'array' and schema_items and schema_items.get('properties', {}):
+        if (schema_items and schema_items.get('properties', {}) and
+                (attribute_type == 'array' or
+                    (isinstance(attribute_type, list) and 'array' in attribute_type))):
             array_instance = instance.get(property_name, None)
             array_schema = schema['properties'][property_name]['items']
 
@@ -146,7 +149,9 @@ def assign_default_values(instance, schema):
                                                                 schema=array_schema)
 
         # Object
-        if attribute_type == 'object' and property_data.get('properties', {}):
+        if (property_data.get('properties', {}) and
+                (attribute_type == 'object' or
+                    (isinstance(attribute_type, list) and 'object' in attribute_type))):
             object_instance = instance.get(property_name, None)
             object_schema = schema['properties'][property_name]
 
@@ -164,33 +169,49 @@ def modify_schema_allow_default_none(schema):
     defines a default value of None.
     """
     schema = copy.deepcopy(schema)
-
     properties = schema.get('properties', {})
+
     for property_name, property_data in six.iteritems(properties):
+        is_optional = not property_data.get('required', False)
         has_default_value = 'default' in property_data
         default_value = property_data.get('default', None)
 
-        if has_default_value and default_value is None:
-            # Allow "None" to be also used as a valid attribute value
-            property_type = schema['properties'][property_name]['type']
+        if (has_default_value or is_optional) and default_value is None:
+            # If property is anyOf and oneOf then it has to be process differently.
+            if set(['anyOf', 'oneOf']) & set(schema['properties'][property_name].keys()):
+                if ('anyOf' in schema['properties'][property_name].keys() and
+                        not [t for t in schema['properties'][property_name]['anyOf']
+                             if t.get('type') == 'null']):
+                    schema['properties'][property_name]['anyOf'].append({'type': 'null'})
+                elif ('oneOf' in schema['properties'][property_name].keys() and
+                        not [t for t in schema['properties'][property_name]['oneOf']
+                             if t.get('type') == 'null']):
+                    schema['properties'][property_name]['oneOf'].append({'type': 'null'})
+            else:
+                # Allow "None" to be also used as a valid attribute value
+                property_type = schema['properties'][property_name].get('type', 'string')
 
-            if isinstance(property_type, list) and 'null' not in property_type:
-                schema['properties'][property_name]['type'].append('null')
-            elif isinstance(property_type, six.string_types) and 'null' not in property_type:
-                schema['properties'][property_name]['type'] = [property_type, 'null']
+                if isinstance(property_type, list) and 'null' not in property_type:
+                    schema['properties'][property_name]['type'].append('null')
+                elif isinstance(property_type, six.string_types) and property_type != 'null':
+                    schema['properties'][property_name]['type'] = [property_type, 'null']
 
         # Support for nested properties (array and object)
         attribute_type = property_data.get('type', None)
         schema_items = property_data.get('items', {})
 
         # Array
-        if attribute_type == 'array' and schema_items and schema_items.get('properties', {}):
+        if (schema_items and schema_items.get('properties', {}) and
+                (attribute_type == 'array' or
+                    (isinstance(attribute_type, list) and 'array' in attribute_type))):
             array_schema = schema_items
             array_schema = modify_schema_allow_default_none(schema=array_schema)
             schema['properties'][property_name]['items'] = array_schema
 
         # Object
-        if attribute_type == 'object' and property_data.get('properties', {}):
+        if (property_data.get('properties', {}) and
+                (attribute_type == 'object' or
+                    (isinstance(attribute_type, list) and 'object' in attribute_type))):
             object_schema = property_data
             object_schema = modify_schema_allow_default_none(schema=object_schema)
             schema['properties'][property_name] = object_schema
@@ -221,6 +242,7 @@ def validate(instance, schema, cls=None, use_default=True, allow_default_none=Fa
 
     # pylint: disable=assignment-from-no-return
     jsonschema.validate(instance=instance, schema=schema, cls=cls, *args, **kwargs)
+
     return instance
 
 
